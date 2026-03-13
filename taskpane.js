@@ -1,71 +1,58 @@
-const REFRESH_INTERVAL_MS = 5 * 60 * 1000;
-
 Office.onReady(() => {
   fetchStorageData();
-  setInterval(fetchStorageData, REFRESH_INTERVAL_MS);
 });
 
 function fetchStorageData() {
-  const soapRequest = `<?xml version="1.0" encoding="utf-8"?>
-<soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-               xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages"
-               xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types"
-               xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
-  <soap:Body>
-    <m:GetFolder>
-      <m:FolderShape>
-        <t:BaseShape>Default</t:BaseShape>
-        <t:AdditionalProperties>
-          <t:ExtendedFieldURI PropertyTag="0x0E08" PropertyType="Long"/>
-        </t:AdditionalProperties>
-      </m:FolderShape>
-      <m:FolderIds>
-        <t:DistinguishedFolderId Id="msgfolderroot"/>
-      </m:FolderIds>
-    </m:GetFolder>
-  </soap:Body>
-</soap:Envelope>`;
+  const text = document.getElementById("storage-text");
+  const fill = document.getElementById("bar-fill");
 
-  Office.context.mailbox.makeEwsRequestAsync(soapRequest, (result) => {
-    const text = document.getElementById("storage-text");
+  try {
+    const mailbox = Office.context.mailbox;
+    const userProfile = mailbox.userProfile;
 
-    if (result.status !== Office.AsyncResultStatus.Succeeded) {
-      text.textContent = "EWS Error: " + result.error.message;
-      return;
-    }
+    // Get mailbox details we can access without EWS
+    const displayName = userProfile.displayName;
+    const email = userProfile.emailAddress;
 
-    try {
-      text.textContent = "Parsing...";
-      const parser = new DOMParser();
-      const xml = parser.parseFromString(result.value, "text/xml");
-      const sizeNode = xml.querySelector("[PropertyTag='0xe08'], [PropertyTag='0xE08']");
+    // Try to get diagnostics info
+    const diagnostics = mailbox.diagnostics;
+    const hostName = diagnostics.hostName;
+    const hostVersion = diagnostics.hostVersion;
 
-      if (!sizeNode) {
-        text.textContent = "Error: size node not found. Raw: " + result.value.substring(0, 200);
+    text.textContent = `Connected: ${email}`;
+    document.getElementById("label").textContent = `${displayName}`;
+
+    // Now try REST-based quota
+    fetchQuotaViaRest(mailbox, text, fill);
+
+  } catch (err) {
+    text.textContent = "Error: " + err.message;
+  }
+}
+
+function fetchQuotaViaRest(mailbox, text, fill) {
+  try {
+    mailbox.getCallbackTokenAsync({ isRest: true }, (tokenResult) => {
+      if (tokenResult.status !== Office.AsyncResultStatus.Succeeded) {
+        text.textContent = "Token error: " + tokenResult.error.message;
         return;
       }
 
-      const usedBytes = parseInt(sizeNode.textContent, 10);
-      const totalBytes = 50 * 1e9;
-      updateBar(usedBytes, totalBytes);
-    } catch (err) {
-      text.textContent = "Parse error: " + err.message;
-    }
-  });
-}
+      const token = tokenResult.value;
+      const restUrl = mailbox.restUrl + "/v2.0/me/MailboxSettings";
 
-function updateBar(usedBytes, totalBytes) {
-  const usedGB  = (usedBytes  / 1e9).toFixed(2);
-  const totalGB = (totalBytes / 1e9).toFixed(0);
-  const pct     = Math.min((usedBytes / totalBytes) * 100, 100).toFixed(1);
-
-  const fill = document.getElementById("bar-fill");
-  const text = document.getElementById("storage-text");
-
-  fill.style.width = `${pct}%`;
-  text.textContent = `${pct}% (${usedGB}GB / ${totalGB}GB)`;
-
-  fill.classList.remove("warn", "danger");
-  if (pct >= 90)      fill.classList.add("danger");
-  else if (pct >= 75) fill.classList.add("warn");
+      fetch(restUrl, {
+        headers: { Authorization: "Bearer " + token }
+      })
+      .then(res => res.json())
+      .then(data => {
+        text.textContent = "Data: " + JSON.stringify(data).substring(0, 100);
+      })
+      .catch(err => {
+        text.textContent = "Fetch error: " + err.message;
+      });
+    });
+  } catch (err) {
+    text.textContent = "REST error: " + err.message;
+  }
 }
