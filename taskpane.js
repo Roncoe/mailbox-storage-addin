@@ -1,77 +1,75 @@
+const CLIENT_ID = "bfa7c9ae-97a9-432c-9261-21904c6adda9";
+const TENANT_ID = "f83ca1ae-f349-4c25-9878-ddc886c1f072";
+const MAX_BYTES = 200 * 1e9; // 200GB sanity ceiling
+const REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+
 Office.onReady(() => {
   fetchStorageData();
+  setInterval(fetchStorageData, REFRESH_INTERVAL_MS);
 });
 
-function fetchStorageData() {
+async function fetchStorageData() {
   const text = document.getElementById("storage-text");
-  const label = document.getElementById("label");
 
   try {
-    const mailbox = Office.context.mailbox;
-    const userProfile = mailbox.userProfile;
-
-    label.textContent = "Mailbox Storage";
-
-    // Try EWS to get actual usage
-    const soapRequest = `<?xml version="1.0" encoding="utf-8"?>
-<soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-               xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages"
-               xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types"
-               xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
-  <soap:Body>
-    <m:GetFolder>
-      <m:FolderShape>
-        <t:BaseShape>Default</t:BaseShape>
-        <t:AdditionalProperties>
-          <t:ExtendedFieldURI PropertyTag="0x0E08" PropertyType="Long"/>
-        </t:AdditionalProperties>
-      </m:FolderShape>
-      <m:FolderIds>
-        <t:DistinguishedFolderId Id="msgfolderroot"/>
-      </m:FolderIds>
-    </m:GetFolder>
-  </soap:Body>
-</soap:Envelope>`;
-
-    mailbox.makeEwsRequestAsync(soapRequest, (result) => {
-      const totalBytes = 50 * 1e9;
-
-      if (result.status !== Office.AsyncResultStatus.Succeeded) {
-        document.getElementById("storage-text").textContent = "EWS fail: " + result.error.message;
-        return;
-      }
-
-      try {
-        const parser = new DOMParser();
-        const xml = parser.parseFromString(result.value, "text/xml");
-        const sizeNode = xml.querySelector("[PropertyTag='0xe08'], [PropertyTag='0xE08']");
-
-        if (!sizeNode) {
-          updateBar(0, totalBytes, true);
-          return;
-        }
-
-        const usedBytes = parseInt(sizeNode.textContent, 10);
-        updateBar(usedBytes, totalBytes, false);
-      } catch (err) {
-        updateBar(0, totalBytes, true);
-      }
+    const token = await getToken();
+    const res = await fetch("https://graph.microsoft.com/v1.0/me/mailboxSettings", {
+      headers: { Authorization: "Bearer " + token }
     });
 
+    if (!res.ok) {
+      text.textContent = "Unable to retrieve mailbox data.";
+      console.error("Graph error:", res.status, res.statusText);
+      return;
+    }
+
+    const data = await res.json();
+
+    // MailboxSettings doesn't include quota — fall back to drive quota
+    const quotaRes = await fetch("https://graph.microsoft.com/v1.0/me/drive/quota", {
+      headers: { Authorization: "Bearer " + token }
+    });
+
+    if (!quotaRes.ok) {
+      text.textContent = "Unable to retrieve quota data.";
+      console.error("Quota error:", quotaRes.status);
+      return;
+    }
+
+    const quotaData = await quotaRes.json();
+    const usedBytes = parseInt(quotaData.used, 10);
+    const totalBytes = parseInt(quotaData.total, 10);
+
+    // Bounds check
+    if (isNaN(usedBytes) || isNaN(totalBytes) || usedBytes < 0 || totalBytes <= 0 || usedBytes > MAX_BYTES || totalBytes > MAX_BYTES) {
+      text.textContent = "Unable to retrieve mailbox data.";
+      console.error("Quota bounds check failed:", quotaData);
+      return;
+    }
+
+    updateBar(usedBytes, totalBytes);
+
   } catch (err) {
-    document.getElementById("storage-text").textContent = "Error: " + err.message;
+    text.textContent = "Unable to retrieve mailbox data.";
+    console.error("fetchStorageData error:", err);
   }
 }
 
-function updateBar(usedBytes, totalBytes, unavailable) {
+function getToken() {
+  return new Promise((resolve, reject) => {
+    Office.context.mailbox.getCallbackTokenAsync({ isRest: true }, (result) => {
+      if (result.status === Office.AsyncResultStatus.Succeeded) {
+        resolve(result.value);
+      } else {
+        reject(new Error("Token unavailable"));
+      }
+    });
+  });
+}
+
+function updateBar(usedBytes, totalBytes) {
   const fill = document.getElementById("bar-fill");
   const text = document.getElementById("storage-text");
-
-  if (unavailable) {
-    text.textContent = "50GB total — usage unavailable";
-    fill.style.width = "0%";
-    return;
-  }
 
   const usedGB = (usedBytes / 1e9).toFixed(2);
   const totalGB = (totalBytes / 1e9).toFixed(0);
