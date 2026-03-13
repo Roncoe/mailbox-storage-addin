@@ -27,27 +27,29 @@ function fetchStorageData() {
 </soap:Envelope>`;
 
   Office.context.mailbox.makeEwsRequestAsync(soapRequest, (result) => {
+    const text = document.getElementById("storage-text");
+
     if (result.status !== Office.AsyncResultStatus.Succeeded) {
-      console.error("EWS error:", result.error.message);
-      document.getElementById("storage-text").textContent = "Unavailable";
+      text.textContent = "EWS Error: " + result.error.message;
       return;
     }
 
     try {
+      text.textContent = "Parsing...";
       const parser = new DOMParser();
       const xml = parser.parseFromString(result.value, "text/xml");
       const sizeNode = xml.querySelector("[PropertyTag='0xe08'], [PropertyTag='0xE08']");
 
-      if (!sizeNode) throw new Error("Size node not found");
+      if (!sizeNode) {
+        text.textContent = "Error: size node not found. Raw: " + result.value.substring(0, 200);
+        return;
+      }
 
       const usedBytes = parseInt(sizeNode.textContent, 10);
-
-      // Exchange doesn't return total quota via EWS easily, so use 50GB as default
       const totalBytes = 50 * 1e9;
       updateBar(usedBytes, totalBytes);
     } catch (err) {
-      console.error("Parse error:", err);
-      document.getElementById("storage-text").textContent = "Unavailable";
+      text.textContent = "Parse error: " + err.message;
     }
   });
 }
