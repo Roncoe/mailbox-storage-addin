@@ -11,7 +11,7 @@ async function fetchStorageData() {
 
   try {
     const token = await getToken();
-    const res = await fetch("https://graph.microsoft.com/v1.0/me/mailboxSettings", {
+    const res = await fetch("https://graph.microsoft.com/v1.0/me?$select=mailboxSettings", {
       headers: { Authorization: "Bearer " + token }
     });
 
@@ -23,25 +23,25 @@ async function fetchStorageData() {
 
     const data = await res.json();
 
-    // MailboxSettings doesn't include quota — fall back to drive quota
-    const quotaRes = await fetch("https://graph.microsoft.com/v1.0/me/drive/quota", {
+    // MailboxSettings doesn't expose quota directly — use Exchange quota via mailbox usage
+    const usageRes = await fetch("https://graph.microsoft.com/v1.0/me/mailFolders?$select=totalItemCount,sizeInBytes&$top=50", {
       headers: { Authorization: "Bearer " + token }
     });
 
-    if (!quotaRes.ok) {
-      text.textContent = "Unable to retrieve quota data.";
-      console.error("Quota error:", quotaRes.status);
+    if (!usageRes.ok) {
+      text.textContent = "Unable to retrieve mailbox data.";
+      console.error("Usage error:", usageRes.status);
       return;
     }
 
-    const quotaData = await quotaRes.json();
-    const usedBytes = parseInt(quotaData.used, 10);
-    const totalBytes = parseInt(quotaData.total, 10);
+    const usageData = await usageRes.json();
+    const usedBytes = usageData.value.reduce((sum, folder) => sum + (parseInt(folder.sizeInBytes, 10) || 0), 0);
+    const totalBytes = 50 * 1e9; // 50GB default, MailboxSettings.Read doesn't expose quota limit
 
     // Bounds check
-    if (isNaN(usedBytes) || isNaN(totalBytes) || usedBytes < 0 || totalBytes <= 0 || usedBytes > MAX_BYTES || totalBytes > MAX_BYTES) {
+    if (isNaN(usedBytes) || usedBytes < 0 || usedBytes > MAX_BYTES) {
       text.textContent = "Unable to retrieve mailbox data.";
-      console.error("Quota bounds check failed:", quotaData);
+      console.error("Bounds check failed:", usageData);
       return;
     }
 
