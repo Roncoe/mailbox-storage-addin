@@ -4,55 +4,34 @@ Office.onReady(() => {
 
 function fetchStorageData() {
   const text = document.getElementById("storage-text");
-  const fill = document.getElementById("bar-fill");
+  const label = document.getElementById("label");
 
   try {
     const mailbox = Office.context.mailbox;
     const userProfile = mailbox.userProfile;
 
-    // Get mailbox details we can access without EWS
-    const displayName = userProfile.displayName;
+    label.textContent = userProfile.displayName;
+
+    // Try to get quota via mailbox.item or roamingSettings
+    // Fall back to showing account info with a manual quota display
     const email = userProfile.emailAddress;
 
-    // Try to get diagnostics info
-    const diagnostics = mailbox.diagnostics;
-    const hostName = diagnostics.hostName;
-    const hostVersion = diagnostics.hostVersion;
-
-    text.textContent = `Connected: ${email}`;
-    document.getElementById("label").textContent = `${displayName}`;
-
-    // Now try REST-based quota
-    fetchQuotaViaRest(mailbox, text, fill);
-
-  } catch (err) {
-    text.textContent = "Error: " + err.message;
-  }
-}
-
-function fetchQuotaViaRest(mailbox, text, fill) {
-  try {
-    mailbox.getCallbackTokenAsync({ isRest: true }, (tokenResult) => {
+    // Use getCallbackTokenAsync for REST but with isRest: false (EAS token)
+    mailbox.getCallbackTokenAsync({ isRest: false }, (tokenResult) => {
       if (tokenResult.status !== Office.AsyncResultStatus.Succeeded) {
-        text.textContent = "Token error: " + tokenResult.error.message;
+        // Last resort: just show connected status
+        text.textContent = `${email} — quota unavailable`;
         return;
       }
 
       const token = tokenResult.value;
-      const restUrl = mailbox.restUrl + "/v2.0/me/MailboxSettings";
 
-      fetch(restUrl, {
-        headers: { Authorization: "Bearer " + token }
-      })
-      .then(res => res.json())
-      .then(data => {
-        text.textContent = "Data: " + JSON.stringify(data).substring(0, 100);
-      })
-      .catch(err => {
-        text.textContent = "Fetch error: " + err.message;
-      });
+      // Use Outlook REST endpoint for mailbox usage
+      const ewsUrl = mailbox.ewsUrl;
+      text.textContent = `EWS URL: ${ewsUrl ? ewsUrl.substring(0, 50) : "none"}`;
     });
+
   } catch (err) {
-    text.textContent = "REST error: " + err.message;
+    text.textContent = "Error: " + err.message;
   }
 }
