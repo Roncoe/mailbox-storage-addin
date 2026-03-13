@@ -1,5 +1,3 @@
-const CLIENT_ID = "bfa7c9ae-97a9-432c-9261-21904c6adda9";
-const TENANT_ID = "f83ca1ae-f349-4c25-9878-ddc886c1f072";
 const MAX_BYTES = 200 * 1e9; // 200GB sanity ceiling
 const REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 
