@@ -10,28 +10,78 @@ function fetchStorageData() {
     const mailbox = Office.context.mailbox;
     const userProfile = mailbox.userProfile;
 
-    label.textContent = userProfile.displayName;
+    label.textContent = "Mailbox Storage";
 
-    // Try to get quota via mailbox.item or roamingSettings
-    // Fall back to showing account info with a manual quota display
-    const email = userProfile.emailAddress;
+    // Try EWS to get actual usage
+    const soapRequest = `<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+               xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages"
+               xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types"
+               xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <m:GetFolder>
+      <m:FolderShape>
+        <t:BaseShape>Default</t:BaseShape>
+        <t:AdditionalProperties>
+          <t:ExtendedFieldURI PropertyTag="0x0E08" PropertyType="Long"/>
+        </t:AdditionalProperties>
+      </m:FolderShape>
+      <m:FolderIds>
+        <t:DistinguishedFolderId Id="msgfolderroot"/>
+      </m:FolderIds>
+    </m:GetFolder>
+  </soap:Body>
+</soap:Envelope>`;
 
-    // Use getCallbackTokenAsync for REST but with isRest: false (EAS token)
-    mailbox.getCallbackTokenAsync({ isRest: false }, (tokenResult) => {
-      if (tokenResult.status !== Office.AsyncResultStatus.Succeeded) {
-        // Last resort: just show connected status
-        text.textContent = `${email} — quota unavailable`;
+    mailbox.makeEwsRequestAsync(soapRequest, (result) => {
+      const totalBytes = 50 * 1e9;
+
+      if (result.status !== Office.AsyncResultStatus.Succeeded) {
+        // EWS blocked — fall back to showing 0 used with 50GB total
+        updateBar(0, totalBytes, true);
         return;
       }
 
-      const token = tokenResult.value;
+      try {
+        const parser = new DOMParser();
+        const xml = parser.parseFromString(result.value, "text/xml");
+        const sizeNode = xml.querySelector("[PropertyTag='0xe08'], [PropertyTag='0xE08']");
 
-      // Use Outlook REST endpoint for mailbox usage
-      const ewsUrl = mailbox.ewsUrl;
-      text.textContent = `EWS URL: ${ewsUrl ? ewsUrl.substring(0, 50) : "none"}`;
+        if (!sizeNode) {
+          updateBar(0, totalBytes, true);
+          return;
+        }
+
+        const usedBytes = parseInt(sizeNode.textContent, 10);
+        updateBar(usedBytes, totalBytes, false);
+      } catch (err) {
+        updateBar(0, totalBytes, true);
+      }
     });
 
   } catch (err) {
-    text.textContent = "Error: " + err.message;
+    document.getElementById("storage-text").textContent = "Error: " + err.message;
   }
+}
+
+function updateBar(usedBytes, totalBytes, unavailable) {
+  const fill = document.getElementById("bar-fill");
+  const text = document.getElementById("storage-text");
+
+  if (unavailable) {
+    text.textContent = "50GB total — usage unavailable";
+    fill.style.width = "0%";
+    return;
+  }
+
+  const usedGB = (usedBytes / 1e9).toFixed(2);
+  const totalGB = (totalBytes / 1e9).toFixed(0);
+  const pct = Math.min((usedBytes / totalBytes) * 100, 100).toFixed(1);
+
+  fill.style.width = `${pct}%`;
+  text.textContent = `${pct}% (${usedGB}GB / ${totalGB}GB)`;
+
+  fill.classList.remove("warn", "danger");
+  if (pct >= 90)      fill.classList.add("danger");
+  else if (pct >= 75) fill.classList.add("warn");
 }
