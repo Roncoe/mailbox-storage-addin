@@ -37,8 +37,7 @@ function fetchStorageData() {
       const totalBytes = 50 * 1e9;
 
       if (result.status !== Office.AsyncResultStatus.Succeeded) {
-        // EWS blocked — fall back to showing 0 used with 50GB total
-        updateBar(0, totalBytes, true);
+        document.getElementById("storage-text").textContent = "EWS fail: " + result.error.message;
         return;
       }
 
