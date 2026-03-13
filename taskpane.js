@@ -37,7 +37,11 @@ async function getAllFolderBytes(token) {
   let total = 0;
   let url = "https://graph.microsoft.com/v1.0/me/mailFolders?$select=sizeInBytes&$top=50";
 
-  while (url) {
+  let pageCount = 0;
+  const MAX_PAGES = 20;
+
+  while (url && pageCount < MAX_PAGES) {
+    pageCount++;
     const res = await fetch(url, {
       headers: { Authorization: "Bearer " + token }
     });
@@ -67,7 +71,7 @@ function getQuotaBytes() {
       <m:FolderShape>
         <t:BaseShape>Default</t:BaseShape>
         <t:AdditionalProperties>
-          <t:ExtendedFieldURI PropertyTag="0x3FF5" PropertyType="Long"/>
+          <t:ExtendedFieldURI PropertyTag="0x3FFB" PropertyType="Long"/>
         </t:AdditionalProperties>
       </m:FolderShape>
       <m:FolderIds>
@@ -96,7 +100,7 @@ function getQuotaBytes() {
           return;
         }
 
-        const quotaNode = xml.querySelector("[PropertyTag='0x3ff5'], [PropertyTag='0x3FF5']");
+        const quotaNode = xml.querySelector("[PropertyTag='0x3ffb'], [PropertyTag='0x3FFB']");
         if (!quotaNode) {
           console.error("Quota node not found in EWS response");
           resolve(50 * 1e9);
