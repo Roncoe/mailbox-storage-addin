@@ -16,7 +16,7 @@ async function fetchStorageData() {
     const usedBytes = await getAllFolderBytes(token);
 
     // Get real quota via EWS
-    const totalBytes = await getQuotaBytes();
+    let totalBytes = await getQuotaBytes();
 
     // Bounds check used
     if (isNaN(usedBytes) || usedBytes < 0 || usedBytes > MAX_BYTES) {
