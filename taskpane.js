@@ -18,11 +18,17 @@ async function fetchStorageData() {
     // Get real quota via EWS
     const totalBytes = await getQuotaBytes();
 
-    // Bounds check
+    // Bounds check used
     if (isNaN(usedBytes) || usedBytes < 0 || usedBytes > MAX_BYTES) {
       text.textContent = "Unable to retrieve mailbox data.";
       console.error("Bounds check failed on usedBytes:", usedBytes);
       return;
+    }
+
+    // Bounds check total
+    if (isNaN(totalBytes) || totalBytes <= 0 || totalBytes > MAX_BYTES) {
+      console.error("Implausible totalBytes, using 50GB fallback:", totalBytes);
+      totalBytes = 50 * 1e9;
     }
 
     updateBar(usedBytes, totalBytes);
